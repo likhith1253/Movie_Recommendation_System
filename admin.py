@@ -23,6 +23,38 @@ import ingest_data
 console = Console()
 
 
+def get_next_movie_id(collection: Collection) -> str:
+    """
+    Gets the next available integer movie ID.
+    
+    Args:
+        collection: ChromaDB collection object.
+        
+    Returns:
+        Next available movie ID as string.
+    """
+    try:
+        all_movies = database.get_all_movies(collection)
+        if not all_movies['ids']:
+            return "0"
+        
+        # Find the highest integer ID
+        max_id = -1
+        for movie_id in all_movies['ids']:
+            try:
+                id_int = int(movie_id)
+                if id_int > max_id:
+                    max_id = id_int
+            except ValueError:
+                # Skip non-integer IDs (UUIDs)
+                continue
+        
+        return str(max_id + 1)
+    except Exception as e:
+        console.print(f"[yellow]Warning: Could not determine next ID, using UUID: {e}[/yellow]")
+        return str(uuid.uuid4())
+
+
 def create_movie(collection: Collection, movie_data: Dict[str, Any]) -> None:
     """
     Creates a new movie in the database.
@@ -32,7 +64,8 @@ def create_movie(collection: Collection, movie_data: Dict[str, Any]) -> None:
         movie_data: Dictionary containing movie information.
     """
     try:
-        movie_id = movie_data.get('id', str(uuid.uuid4()))
+        # Get next sequential integer ID if not provided
+        movie_id = movie_data.get('id', get_next_movie_id(collection))
         
         # Create document for embedding
         document = f"Title: {movie_data['title']}. Overview: {movie_data['overview']}. " \
@@ -190,25 +223,66 @@ def show_database_insights(collection: Collection) -> None:
         console.print(f"[red]Error showing insights: {e}[/red]")
 
 
-def benchmark_queries(collection: Collection) -> None:
+def benchmark_queries(collection: Collection, query_text: Optional[str] = None) -> None:
     """
     Runs a benchmark on query performance and displays indexing information.
     
     Args:
         collection: ChromaDB collection object.
+        query_text: Optional query text. If None, user will be prompted.
     """
     try:
         console.print("\n[bold cyan]═══ Query Performance Benchmark ═══[/bold cyan]\n")
         
-        # Sample query
-        query_text = "action movie with explosions"
+        # Get query from user if not provided
+        if query_text is None:
+            query_text = questionary.text(
+                "Enter your search query:",
+                default="action movie with explosions",
+                style=questionary.Style([('question', 'fg:cyan bold')])
+            ).ask()
+            
+            if not query_text:
+                console.print("[yellow]Query cannot be empty.[/yellow]")
+                return
         
-        console.print(f"[bold]Running benchmark:[/bold] {BENCHMARK_ITERATIONS} iterations")
+        console.print(f"\n[bold]Running benchmark:[/bold] {BENCHMARK_ITERATIONS} iterations")
         console.print(f"[bold]Query:[/bold] [cyan]'{query_text}'[/cyan]\n")
+        
+        # First, get sample results to show what the query returns
+        console.print("[bold]Sample Results:[/bold]\n")
+        with console.status("[bold green]Fetching sample results...", spinner="dots"):
+            sample_results = database.query_movies(collection, query_text, n_results=5)
+        
+        # Display sample results
+        if sample_results['ids'] and len(sample_results['ids'][0]) > 0:
+            sample_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
+            sample_table.add_column("#", style="dim", width=3)
+            sample_table.add_column("Title", style="cyan", width=35)
+            sample_table.add_column("Year", style="green", width=6)
+            sample_table.add_column("Rating", style="yellow", justify="center", width=7)
+            sample_table.add_column("Similarity", style="magenta", justify="right", width=10)
+            
+            for i, movie_id in enumerate(sample_results['ids'][0], 1):
+                metadata = sample_results['metadatas'][0][i-1]
+                distance = sample_results['distances'][0][i-1] if 'distances' in sample_results else 0
+                similarity = f"{(1 - distance) * 100:.1f}%" if 'distances' in sample_results else "N/A"
+                
+                title = metadata.get('title', 'Unknown')
+                year = metadata.get('release_date', 'N/A').split('-')[0] if metadata.get('release_date') else 'N/A'
+                rating = f"{metadata.get('vote_average', 0.0):.1f}"
+                
+                sample_table.add_row(str(i), title, year, rating, similarity)
+            
+            console.print(sample_table)
+        else:
+            console.print("[yellow]No results found for this query.[/yellow]")
+        
+        console.print()
         
         # Run benchmark with progress bar
         with Progress() as progress:
-            task = progress.add_task("[green]Benchmarking...", total=BENCHMARK_ITERATIONS)
+            task = progress.add_task("[green]Benchmarking performance...", total=BENCHMARK_ITERATIONS)
             
             stats = database.benchmark_query(
                 collection,
@@ -219,7 +293,8 @@ def benchmark_queries(collection: Collection) -> None:
             
             progress.update(task, completed=BENCHMARK_ITERATIONS)
         
-        # Display results
+        # Display performance results
+        console.print("\n[bold]Performance Metrics:[/bold]\n")
         results_table = Table(show_header=True, header_style="bold magenta", box=box.ROUNDED)
         results_table.add_column("Metric", style="cyan", width=20)
         results_table.add_column("Value", style="green", justify="right", width=20)
@@ -228,8 +303,21 @@ def benchmark_queries(collection: Collection) -> None:
         results_table.add_row("Min Time", f"{stats['min']*1000:.2f} ms")
         results_table.add_row("Max Time", f"{stats['max']*1000:.2f} ms")
         results_table.add_row("Total Time", f"{stats['total']:.2f} s")
+        results_table.add_row("Iterations", str(BENCHMARK_ITERATIONS))
         
         console.print(results_table)
+        
+        # Performance insights
+        console.print("\n[bold]Performance Insights:[/bold]")
+        avg_time = stats['average']
+        if avg_time < 0.05:
+            console.print("  [green]✓[/green] Excellent performance! Queries are very fast.")
+        elif avg_time < 0.1:
+            console.print("  [green]✓[/green] Good performance. Suitable for real-time applications.")
+        elif avg_time < 0.5:
+            console.print("  [yellow]✓[/yellow] Acceptable performance for most use cases.")
+        else:
+            console.print("  [red]⚠[/red] Slower performance. Consider optimizing or reducing dataset size.")
         
         # Display indexing information
         console.print("\n" + "="*80 + "\n")

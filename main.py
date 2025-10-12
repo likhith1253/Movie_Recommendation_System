@@ -395,16 +395,67 @@ def update_movie_flow(collection) -> None:
     console.print()
     console.print("[bold magenta]Update Movie[/bold magenta]\n")
     
-    movie_id = questionary.text(
-        "Enter movie ID to update:",
+    movie_name = questionary.text(
+        "Enter movie name to search:",
         style=questionary.Style([('question', 'fg:cyan bold')])
     ).ask()
     
-    if not movie_id:
-        console.print("[yellow]Movie ID cannot be empty.[/yellow]")
+    if not movie_name:
+        console.print("[yellow]Movie name cannot be empty.[/yellow]")
         return
     
-    # First, display the current movie
+    # Search for movies by name
+    with console.status(f"[bold green]Searching for '{movie_name}'...", spinner="dots"):
+        matching_movies = database.search_by_metadata(collection, "title", movie_name, "$eq")
+    
+    if not matching_movies:
+        console.print(f"[yellow]No exact match found for '{movie_name}'. Trying partial match...[/yellow]")
+        # Try to find partial matches
+        all_movies = database.get_all_movies(collection)
+        matching_movies = []
+        for i, metadata in enumerate(all_movies['metadatas']):
+            title = metadata.get('title', '')
+            if movie_name.lower() in title.lower():
+                matching_movies.append({
+                    'id': all_movies['ids'][i],
+                    'metadata': metadata
+                })
+    
+    if not matching_movies:
+        console.print(f"[red]No movies found matching '{movie_name}'.[/red]")
+        return
+    
+    # If multiple matches, let user select
+    if len(matching_movies) > 1:
+        console.print(f"\n[cyan]Found {len(matching_movies)} matching movies:[/cyan]\n")
+        choices = []
+        for movie in matching_movies:
+            title = movie['metadata'].get('title', 'Unknown')
+            year = movie['metadata'].get('release_date', 'N/A').split('-')[0] if movie['metadata'].get('release_date') else 'N/A'
+            rating = movie['metadata'].get('vote_average', 0.0)
+            choices.append(questionary.Choice(
+                f"{title} ({year}) - Rating: {rating}",
+                value=movie['id']
+            ))
+        
+        movie_id = questionary.select(
+            "Select the movie to update:",
+            choices=choices,
+            style=questionary.Style([
+                ('selected', 'fg:cyan bold'),
+                ('pointer', 'fg:cyan bold'),
+                ('question', 'fg:yellow bold')
+            ])
+        ).ask()
+        
+        if not movie_id:
+            console.print("[yellow]No movie selected.[/yellow]")
+            return
+    else:
+        movie_id = matching_movies[0]['id']
+        console.print(f"[green]Found movie: {matching_movies[0]['metadata'].get('title', 'Unknown')}[/green]\n")
+    
+    # Display the current movie
     admin.read_movie(collection, movie_id)
     
     console.print("\n[dim]Leave fields empty to keep current values[/dim]\n")
