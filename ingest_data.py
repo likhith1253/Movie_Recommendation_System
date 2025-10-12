@@ -4,11 +4,13 @@ import ast
 from typing import List
 from chromadb.types import Metadata
 
-# --- Configuration ---
-MOVIES_CSV_FILE_PATH = 'tmdb_5000_movies.csv'
-CREDITS_CSV_FILE_PATH = 'tmdb_5000_credits.csv'
-DB_PATH = "movie_db"
-COLLECTION_NAME = "movies"
+from config import (
+    MOVIES_CSV_FILE_PATH,
+    CREDITS_CSV_FILE_PATH,
+    DB_PATH,
+    COLLECTION_NAME,
+    BATCH_SIZE
+)
 
 # --- Helper Functions ---
 def parse_json_column(data, column_name):
@@ -34,13 +36,27 @@ def get_cast(data, column_name):
     return cast_data
 
 
+def get_director(data, column_name):
+    """Safely extracts the director's name from the 'crew' column."""
+    director_data = []
+    for item in data[column_name]:
+        try:
+            crew_list = ast.literal_eval(item)
+            director = next((d['name'] for d in crew_list if d.get('job') == 'Director'), 'Unknown')
+            director_data.append(director)
+        except (ValueError, SyntaxError, TypeError):
+            director_data.append('Unknown')
+    return director_data
+
+
 def create_rich_document(row):
     """Creates a detailed text document for embedding."""
     title = row.get('title_x', 'Unknown Title')
     overview = row.get('overview', 'No overview available.')
     genres_str = ", ".join(row.get('genres_list', []))
     cast_str = ", ".join(row.get('cast_list', []))
-    return f"Title: {title}. Overview: {overview}. Genres: {genres_str}. Cast: {cast_str}."
+    director = row.get('director', 'Unknown')
+    return f"Title: {title}. Overview: {overview}. Genres: {genres_str}. Cast: {cast_str}. Director: {director}."
 
 # --- Main Ingestion Logic ---
 def main():
@@ -59,7 +75,7 @@ def main():
     df = pd.merge(movies_df, credits_df, on='movie_id')
 
     try:
-        required_columns = ['overview', 'title_x', 'genres', 'cast']
+        required_columns = ['overview', 'title_x', 'genres', 'cast', 'crew']
         df.dropna(subset=required_columns, inplace=True)
         df.reset_index(drop=True, inplace=True)
     except KeyError as e:
@@ -71,12 +87,20 @@ def main():
         return
 
     client = chromadb.PersistentClient(path=DB_PATH)
-    collection = client.get_or_create_collection(name=COLLECTION_NAME)
+    collection = client.get_or_create_collection(
+        name=COLLECTION_NAME,
+        metadata={"hnsw:space": "cosine"}  # Use cosine similarity for better semantic search
+    )
 
+    print("Parsing genres, cast, and director information...")
     df['genres_list'] = parse_json_column(df, 'genres')
     df['cast_list'] = get_cast(df, 'cast')
+    df['director'] = get_director(df, 'crew')
+    
+    print("Creating rich documents for embedding...")
     documents = [create_rich_document(row) for _, row in df.iterrows()]
 
+    print("Preparing metadata...")
     metadatas: List[Metadata] = []
     for _, row in df.iterrows():
         item: Metadata = {
@@ -86,25 +110,27 @@ def main():
             "release_date": str(row.get('release_date', 'N/A')),
             "vote_average": float(row.get('vote_average', 0.0)),
             "runtime": int(row.get('runtime', 0)),
+            "director": str(row.get('director', 'Unknown')),
             "id": str(row.get('movie_id'))
         }
         metadatas.append(item)
 
     ids = [str(i) for i in df.index]
 
-    batch_size = 500
-    print(f"Starting ingestion...")
-    for i in range(0, len(ids), batch_size):
-        batch_ids = ids[i:i + batch_size]
-        batch_documents = documents[i:i + batch_size]
-        batch_metadatas = metadatas[i:i + batch_size]
+    print(f"Starting ingestion of {len(ids)} movies in batches of {BATCH_SIZE}...")
+    for i in range(0, len(ids), BATCH_SIZE):
+        batch_ids = ids[i:i + BATCH_SIZE]
+        batch_documents = documents[i:i + BATCH_SIZE]
+        batch_metadatas = metadatas[i:i + BATCH_SIZE]
 
         collection.add(
             ids=batch_ids,
             documents=batch_documents,
             metadatas=batch_metadatas
         )
-    print("Data ingestion complete!")
+        print(f"  Ingested batch {i // BATCH_SIZE + 1} ({len(batch_ids)} movies)")
+    
+    print(f"\n✓ Data ingestion complete! Total movies ingested: {len(ids)}")
 
 if __name__ == "__main__":
     main()
