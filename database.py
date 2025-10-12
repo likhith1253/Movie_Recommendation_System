@@ -88,16 +88,17 @@ def get_movie_by_id(collection: Collection, movie_id: str) -> Optional[Dict[str,
     try:
         result = collection.get(
             ids=[movie_id],
-            include=["metadatas", "documents"]
+            include=["metadatas", "documents", "embeddings"] # Add "embeddings" here
         )
-        
+
         if not result['ids']:
             return None
-            
+
         return {
             'id': result['ids'][0],
             'metadata': result['metadatas'][0],
-            'document': result['documents'][0]
+            'document': result['documents'][0],
+            'embedding': result['embeddings'][0] # Add the embedding to the result
         }
     except Exception as e:
         raise RuntimeError(f"Failed to fetch movie: {e}")
@@ -116,9 +117,9 @@ def get_all_movies(collection: Collection, limit: Optional[int] = None) -> Dict[
     """
     try:
         if limit:
-            return collection.get(limit=limit, include=["metadatas"])
+            return collection.get(limit=limit, include=["metadatas", "embeddings"]) # Add "embeddings" here
         else:
-            return collection.get(include=["metadatas"])
+            return collection.get(include=["metadatas", "embeddings"]) # Add "embeddings" here
     except Exception as e:
         raise RuntimeError(f"Failed to fetch movies: {e}")
 
