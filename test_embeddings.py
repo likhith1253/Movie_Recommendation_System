@@ -1,72 +1,134 @@
 import database
 from rich.console import Console
-import numpy as np # Import numpy
+from rich.table import Table
+import numpy as np
 
 console = Console()
 
-def test_embedding_retrieval():
+def find_movie_by_name(collection, movie_name: str):
     """
-    Tests if vector embeddings are successfully retrieved from the database.
+    Searches for a movie by name in the collection.
+    
+    Args:
+        collection: ChromaDB collection object.
+        movie_name: Name of the movie to search for.
+        
+    Returns:
+        Movie data if found, None otherwise.
     """
-    console.print("[bold cyan]--- Testing Embedding Retrieval ---[/bold cyan]")
-
     try:
-        # 1. Connect to the ChromaDB collection
+        # Get all movies and search for the movie name
+        all_movies = collection.get(include=["metadatas", "embeddings"])
+        
+        for i, metadata in enumerate(all_movies['metadatas']):
+            title = metadata.get('title', '')
+            if title and movie_name.lower() in title.lower():
+                return {
+                    'id': all_movies['ids'][i],
+                    'metadata': metadata,
+                    'embedding': all_movies['embeddings'][i] if all_movies['embeddings'] else None
+                }
+        
+        return None
+    except Exception as e:
+        console.print(f"[bold red]Error searching for movie: {e}[/bold red]")
+        return None
+
+
+def display_movie_embeddings(movie_name: str):
+    """
+    Takes a movie name as input and displays its embeddings.
+    
+    Args:
+        movie_name: Name of the movie to search for.
+    """
+    console.print(f"[bold cyan]--- Searching for Movie: '{movie_name}' ---[/bold cyan]\n")
+    
+    try:
+        # Connect to the ChromaDB collection
         with console.status("[bold green]Connecting to ChromaDB...", spinner="dots"):
             collection = database.connect_to_collection()
-        console.print("✓ Connection successful!")
-
-        # 2. Test get_movie_by_id
-        console.print("\n[bold cyan]--- Testing get_movie_by_id ---[/bold cyan]")
+        console.print("✓ Connection successful!\n")
         
-        sample_movies = database.get_all_movies(collection, limit=1)
-        if not sample_movies or not sample_movies.get('ids'):
-            console.print("[red]Error: Could not retrieve a sample movie to test.[/red]")
+        if collection is None:
+            console.print("[bold red]Error: Failed to connect to the collection.[/bold red]")
             return
-            
-        test_movie_id = sample_movies['ids'][0]
-        console.print(f"Fetching movie with ID: [yellow]{test_movie_id}[/yellow]")
-
-        movie_data = database.get_movie_by_id(collection, test_movie_id)
-
-        if movie_data and 'embedding' in movie_data:
-            console.print("[bold green]✓ Success![/bold green] Found 'embedding' key.")
-            embedding = movie_data['embedding']
-            console.print(f"  - Embedding Type: {type(embedding)}")
-            console.print(f"  - Embedding Length (Dimensions): {len(embedding)}")
-            console.print(f"  - Embedding Preview: {embedding}")
-        else:
-            console.print("[bold red]✗ Failure![/bold red] 'embedding' key not found in the result.")
-            console.print("Full result:", movie_data)
-
-
-        # 3. Test get_all_movies
-        console.print("\n[bold cyan]--- Testing get_all_movies ---[/bold cyan]")
         
-        all_movies_data = database.get_all_movies(collection, limit=3)
-
-        # --- MODIFIED SECTION ---
-        # Check if embeddings exist and the container is not empty
-        if (all_movies_data and
-                'embeddings' in all_movies_data and
-                all_movies_data['embeddings'] is not None and
-                len(all_movies_data['embeddings']) > 0):
-            console.print("[bold green]✓ Success![/bold green] Found 'embeddings' key.")
-            console.print(f"  - Retrieved embeddings for {len(all_movies_data['embeddings'])} movies.")
+        # Search for the movie
+        with console.status(f"[bold green]Searching for '{movie_name}'...", spinner="dots"):
+            movie_data = find_movie_by_name(collection, movie_name)
+        
+        if movie_data is None:
+            console.print(f"[bold red]✗ Movie '{movie_name}' not found in the database.[/bold red]")
+            console.print("\n[yellow]Tip: Try searching with a partial name or check the spelling.[/yellow]")
+            return
+        
+        # Display movie information
+        console.print("[bold green]✓ Movie Found![/bold green]\n")
+        
+        # Create a table for movie details
+        table = Table(title="Movie Details", show_header=True, header_style="bold magenta")
+        table.add_column("Field", style="cyan", width=20)
+        table.add_column("Value", style="white")
+        
+        metadata = movie_data['metadata']
+        table.add_row("ID", movie_data['id'])
+        table.add_row("Title", metadata.get('title', 'N/A'))
+        table.add_row("Genres", metadata.get('genres', 'N/A'))
+        table.add_row("Director", metadata.get('director', 'N/A'))
+        
+        # Extract year from release_date
+        release_date = metadata.get('release_date', 'N/A')
+        year = release_date.split('-')[0] if release_date and release_date != 'N/A' else 'N/A'
+        table.add_row("Year", year)
+        
+        table.add_row("Release Date", release_date)
+        table.add_row("Rating", str(metadata.get('vote_average', 'N/A')))
+        table.add_row("Runtime", f"{metadata.get('runtime', 'N/A')} min" if metadata.get('runtime') else 'N/A')
+        
+        console.print(table)
+        
+        # Display embedding information
+        console.print("\n[bold cyan]--- Embedding Information ---[/bold cyan]")
+        
+        embedding = movie_data['embedding']
+        if embedding is not None:
+            console.print(f"  - Embedding Type: [yellow]{type(embedding)}[/yellow]")
             
-            first_embedding = all_movies_data['embeddings'][0]
-            console.print(f"  - First Embedding Type: {type(first_embedding)}")
-            # Use .shape for numpy arrays to get dimensions
-            if isinstance(first_embedding, np.ndarray):
-                console.print(f"  - First Embedding Shape: {first_embedding.shape}")
+            if isinstance(embedding, np.ndarray):
+                console.print(f"  - Embedding Shape: [yellow]{embedding.shape}[/yellow]")
+                console.print(f"  - Embedding Dimensions: [yellow]{len(embedding)}[/yellow]")
             else:
-                 console.print(f"  - First Embedding Length: {len(first_embedding)}")
+                console.print(f"  - Embedding Length: [yellow]{len(embedding)}[/yellow]")
+            
+            # Display embedding statistics
+            embedding_array = np.array(embedding)
+            console.print(f"  - Min Value: [yellow]{np.min(embedding_array):.6f}[/yellow]")
+            console.print(f"  - Max Value: [yellow]{np.max(embedding_array):.6f}[/yellow]")
+            console.print(f"  - Mean Value: [yellow]{np.mean(embedding_array):.6f}[/yellow]")
+            console.print(f"  - Std Deviation: [yellow]{np.std(embedding_array):.6f}[/yellow]")
+            
+            # Display first 10 values of the embedding
+            console.print(f"\n  - First 10 Embedding Values:")
+            console.print(f"    [yellow]{embedding_array[:10]}[/yellow]")
+            
+            # Optionally display the full embedding
+            show_full = console.input("\n[cyan]Display full embedding? (y/n): [/cyan]").strip().lower()
+            if show_full == 'y':
+                console.print(f"\n[bold cyan]Full Embedding:[/bold cyan]")
+                console.print(f"[yellow]{embedding_array}[/yellow]")
         else:
-            console.print("[bold red]✗ Failure![/bold red] 'embeddings' key not found or is empty.")
-            console.print("Full result:", all_movies_data)
-
+            console.print("[bold red]✗ No embedding found for this movie.[/bold red]")
+    
     except Exception as e:
-        console.print(f"\n[bold red]An error occurred during testing: {e}[/bold red]")
+        console.print(f"\n[bold red]An error occurred: {e}[/bold red]")
+
 
 if __name__ == "__main__":
-    test_embedding_retrieval()
+    # Get movie name from user input
+    movie_name = console.input("\n[bold cyan]Enter movie name to search: [/bold cyan]").strip()
+    
+    if movie_name:
+        display_movie_embeddings(movie_name)
+    else:
+        console.print("[bold red]Error: Please enter a valid movie name.[/bold red]")
