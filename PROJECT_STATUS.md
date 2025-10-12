@@ -71,6 +71,7 @@ Movie Recommendation System/
 - **Database Insights**: Statistics and genre distribution
 - **Query Benchmarking**: Performance testing
 - **Database Peek**: Quick view of records
+- **Interactive Indexing Benchmark**: NEW! Dynamically test different distance functions
 
 ---
 

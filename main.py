@@ -273,6 +273,7 @@ def admin_panel_flow(collection) -> None:
                 "👀 Peek at Database",
                 "📊 Database Insights",
                 "⚡ Benchmark Queries",
+                "🔬 Interactive Indexing Benchmark",
                 "🔙 Back to Main Menu"
             ],
             style=questionary.Style([
@@ -305,6 +306,12 @@ def admin_panel_flow(collection) -> None:
         
         elif choice == "⚡ Benchmark Queries":
             admin.benchmark_queries(collection)
+        
+        elif choice == "🔬 Interactive Indexing Benchmark":
+            new_collection = admin.interactive_indexing_benchmark()
+            if new_collection:
+                collection = new_collection
+                console.print("[bold green]✓ Collection updated! You can now use the new collection.[/bold green]")
 
 
 def create_movie_flow(collection) -> None:

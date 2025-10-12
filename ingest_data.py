@@ -59,17 +59,26 @@ def create_rich_document(row):
     return f"Title: {title}. Overview: {overview}. Genres: {genres_str}. Cast: {cast_str}. Director: {director}."
 
 # --- Main Ingestion Logic ---
-def main():
+def ingest_data(distance_function: str = "cosine", progress_callback=None):
     """
-    Main function to read, process, and ingest movie data into ChromaDB.
+    Callable function to read, process, and ingest movie data into ChromaDB.
+    
+    Args:
+        distance_function: Distance metric to use ('cosine', 'l2', or 'ip')
+        progress_callback: Optional callback function for progress updates
+                          Should accept (current, total, message) parameters
+    
+    Returns:
+        Tuple of (success: bool, total_records: int, error_message: str or None)
     """
-    print("Starting data ingestion process...")
     try:
+        if progress_callback:
+            progress_callback(0, 100, "Loading CSV files...")
+        
         movies_df = pd.read_csv(MOVIES_CSV_FILE_PATH)
         credits_df = pd.read_csv(CREDITS_CSV_FILE_PATH)
     except FileNotFoundError as e:
-        print(f"Error: {e}")
-        return
+        return False, 0, f"CSV files not found: {e}"
 
     movies_df = movies_df.rename(columns={'id': 'movie_id'})
     df = pd.merge(movies_df, credits_df, on='movie_id')
@@ -79,34 +88,35 @@ def main():
         df.dropna(subset=required_columns, inplace=True)
         df.reset_index(drop=True, inplace=True)
     except KeyError as e:
-        print(f"\n[ERROR] A required column was not found: {e}")
-        print("This is likely due to a mismatch in your CSV file's column names.")
-        print("\nAvailable columns after merge are:")
-        print(list(df.columns))
-        print("\nPlease check your CSV files and update the 'required_columns' list in the script.")
-        return
+        return False, 0, f"Required column not found: {e}"
 
+    if progress_callback:
+        progress_callback(10, 100, "Connecting to ChromaDB...")
+    
     client = chromadb.PersistentClient(path=DB_PATH)
     collection = client.get_or_create_collection(
         name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"}  # Use cosine similarity for better semantic search
+        metadata={"hnsw:space": distance_function}
     )
 
-    print("Parsing genres, cast, and director information...")
+    if progress_callback:
+        progress_callback(20, 100, "Parsing movie data...")
+    
     df['genres_list'] = parse_json_column(df, 'genres')
     df['cast_list'] = get_cast(df, 'cast')
     df['director'] = get_director(df, 'crew')
     
-    print("Creating rich documents for embedding...")
+    if progress_callback:
+        progress_callback(30, 100, "Creating embeddings...")
+    
     documents = [create_rich_document(row) for _, row in df.iterrows()]
 
-    print("Preparing metadata...")
     metadatas: List[Metadata] = []
     for _, row in df.iterrows():
         item: Metadata = {
             "title": str(row.get('title_x', '')),
             "overview": str(row.get('overview', '')),
-            "genres": ", ".join(row.get('genres_list', [])), # Stored as a single string
+            "genres": ", ".join(row.get('genres_list', [])),
             "release_date": str(row.get('release_date', 'N/A')),
             "vote_average": float(row.get('vote_average', 0.0)),
             "runtime": int(row.get('runtime', 0)),
@@ -116,8 +126,8 @@ def main():
         metadatas.append(item)
 
     ids = [str(i) for i in df.index]
+    total_batches = (len(ids) + BATCH_SIZE - 1) // BATCH_SIZE
 
-    print(f"Starting ingestion of {len(ids)} movies in batches of {BATCH_SIZE}...")
     for i in range(0, len(ids), BATCH_SIZE):
         batch_ids = ids[i:i + BATCH_SIZE]
         batch_documents = documents[i:i + BATCH_SIZE]
@@ -128,9 +138,33 @@ def main():
             documents=batch_documents,
             metadatas=batch_metadatas
         )
-        print(f"  Ingested batch {i // BATCH_SIZE + 1} ({len(batch_ids)} movies)")
+        
+        if progress_callback:
+            batch_num = i // BATCH_SIZE + 1
+            progress_pct = 30 + int((batch_num / total_batches) * 70)
+            progress_callback(progress_pct, 100, f"Ingesting batch {batch_num}/{total_batches}...")
     
-    print(f"\n✓ Data ingestion complete! Total movies ingested: {len(ids)}")
+    if progress_callback:
+        progress_callback(100, 100, "Ingestion complete!")
+    
+    return True, len(ids), None
+
+
+def main():
+    """
+    Main function for command-line ingestion.
+    """
+    print("Starting data ingestion process...")
+    
+    def print_progress(current, total, message):
+        print(f"[{current}/{total}] {message}")
+    
+    success, count, error = ingest_data("cosine", print_progress)
+    
+    if success:
+        print(f"\n✓ Data ingestion complete! Total movies ingested: {count}")
+    else:
+        print(f"\n✗ Data ingestion failed: {error}")
 
 if __name__ == "__main__":
     main()

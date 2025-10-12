@@ -4,17 +4,21 @@ Contains CRUD operations and database analytics.
 """
 
 import uuid
+import time
+import chromadb
+import questionary
 from typing import Dict, Any, Optional
 from chromadb.api.models.Collection import Collection
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich import box
-from rich.progress import Progress
+from rich.progress import Progress, SpinnerColumn, BarColumn, TextColumn, TimeElapsedColumn
 
 import database
-from config import TOP_GENRES_COUNT, BENCHMARK_ITERATIONS, INDEXING_INFO
+from config import TOP_GENRES_COUNT, BENCHMARK_ITERATIONS, INDEXING_INFO, DB_PATH, COLLECTION_NAME
 import operations
+import ingest_data
 
 console = Console()
 
@@ -309,3 +313,229 @@ def search_by_filters(collection: Collection, filters: Dict[str, Any]) -> None:
         
     except Exception as e:
         console.print(f"[red]Error searching with filters: {e}[/red]")
+
+
+def interactive_indexing_benchmark() -> Optional[Collection]:
+    """
+    Interactive indexing and performance demonstration.
+    Allows users to recreate the collection with different distance functions
+    and benchmark the performance impact.
+    
+    Returns:
+        New collection object if successful, None otherwise.
+    """
+    try:
+        console.print("\n[bold cyan]═══ Interactive Indexing Benchmark ═══[/bold cyan]\n")
+        
+        # Step 1: Present Configuration Options
+        console.print("[bold]Select a distance function for the collection:[/bold]\n")
+        
+        distance_choice = questionary.select(
+            "Distance Function:",
+            choices=[
+                questionary.Choice("cosine (Cosine Similarity) - Best for semantic search", value="cosine"),
+                questionary.Choice("l2 (Euclidean Distance) - Traditional vector distance", value="l2"),
+                questionary.Choice("ip (Inner Product) - Dot product similarity", value="ip")
+            ],
+            style=questionary.Style([
+                ('selected', 'fg:cyan bold'),
+                ('pointer', 'fg:cyan bold'),
+                ('question', 'fg:yellow bold')
+            ])
+        ).ask()
+        
+        if not distance_choice:
+            console.print("[yellow]Operation cancelled.[/yellow]")
+            return None
+        
+        # Display information about the selected distance function
+        distance_info = {
+            "cosine": "Measures angle between vectors (0-2 range). Best for semantic similarity.",
+            "l2": "Measures Euclidean distance between vectors. Traditional metric.",
+            "ip": "Measures inner product (dot product). Good for normalized vectors."
+        }
+        
+        console.print(f"\n[bold]Selected:[/bold] [cyan]{distance_choice}[/cyan]")
+        console.print(f"[dim]{distance_info[distance_choice]}[/dim]\n")
+        
+        # Step 2: Warn and Confirm
+        warning_text = f"""[bold red]⚠️  WARNING[/bold red]
+
+This will [bold]DELETE[/bold] the existing '[cyan]{COLLECTION_NAME}[/cyan]' collection 
+and [bold]RE-INGEST[/bold] all data with the new settings.
+
+[bold yellow]What will happen:[/bold yellow]
+  • Current collection will be deleted
+  • New collection created with [cyan]{distance_choice}[/cyan] distance function
+  • All ~4,800 movies will be re-ingested
+  • Process may take [bold]2-5 minutes[/bold]
+
+[bold]Do you want to proceed?[/bold]"""
+        
+        warning_panel = Panel(
+            warning_text,
+            title="[bold red]⚠️  Confirmation Required[/bold red]",
+            border_style="red",
+            box=box.DOUBLE
+        )
+        
+        console.print(warning_panel)
+        console.print()
+        
+        confirm = questionary.confirm(
+            "Proceed with collection recreation?",
+            default=False,
+            style=questionary.Style([('question', 'fg:red bold')])
+        ).ask()
+        
+        if not confirm:
+            console.print("\n[yellow]Operation cancelled. No changes made.[/yellow]")
+            return None
+        
+        # Step 3: Recreate and Re-ingest
+        console.print("\n[bold green]Starting collection recreation...[/bold green]\n")
+        
+        # Delete existing collection
+        console.print("[bold]Step 1/3:[/bold] Deleting existing collection...")
+        try:
+            client = chromadb.PersistentClient(path=DB_PATH)
+            client.delete_collection(name=COLLECTION_NAME)
+            console.print("[green]✓[/green] Collection deleted\n")
+        except Exception as e:
+            console.print(f"[yellow]⚠[/yellow] Collection may not exist: {e}\n")
+        
+        # Create new collection
+        console.print(f"[bold]Step 2/3:[/bold] Creating new collection with [cyan]{distance_choice}[/cyan] distance...")
+        try:
+            new_collection = client.create_collection(
+                name=COLLECTION_NAME,
+                metadata={"hnsw:space": distance_choice}
+            )
+            console.print(f"[green]✓[/green] Collection created with distance function: [cyan]{distance_choice}[/cyan]\n")
+        except Exception as e:
+            console.print(f"[red]✗[/red] Failed to create collection: {e}")
+            return None
+        
+        # Re-ingest data with progress bar
+        console.print("[bold]Step 3/3:[/bold] Re-ingesting movie data...\n")
+        
+        progress_data = {"current": 0, "message": "Starting..."}
+        
+        def progress_callback(current, total, message):
+            progress_data["current"] = current
+            progress_data["message"] = message
+        
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            TimeElapsedColumn(),
+            console=console
+        ) as progress:
+            task = progress.add_task("[cyan]Ingesting data...", total=100)
+            
+            # Start ingestion in a way that allows progress updates
+            success, total_records, error = ingest_data.ingest_data(
+                distance_function=distance_choice,
+                progress_callback=lambda c, t, m: progress.update(task, completed=c, description=f"[cyan]{m}")
+            )
+        
+        if not success:
+            console.print(f"\n[red]✗[/red] Ingestion failed: {error}")
+            return None
+        
+        console.print(f"\n[green]✓[/green] Successfully ingested [bold]{total_records:,}[/bold] movies!\n")
+        
+        # Step 4: Benchmark and Display Results
+        console.print("[bold cyan]═══ Running Performance Benchmark ═══[/bold cyan]\n")
+        
+        benchmark_query = "Inception"
+        iterations = 10
+        
+        console.print(f"[bold]Benchmark Query:[/bold] Find recommendations for '[cyan]{benchmark_query}[/cyan]'")
+        console.print(f"[bold]Iterations:[/bold] {iterations}\n")
+        
+        # Get the movie document for benchmarking
+        inception_data = new_collection.get(
+            where={"title": {"$eq": benchmark_query}},
+            include=["documents"],
+            limit=1
+        )
+        
+        if not inception_data['ids']:
+            console.print("[yellow]⚠ Benchmark movie not found, using text query instead[/yellow]\n")
+            query_text = benchmark_query
+        else:
+            query_text = inception_data['documents'][0]
+        
+        # Run benchmark
+        times = []
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[progress.description]{task.description}"),
+            BarColumn(),
+            TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+            console=console
+        ) as progress:
+            task = progress.add_task("[green]Benchmarking queries...", total=iterations)
+            
+            for i in range(iterations):
+                start_time = time.time()
+                new_collection.query(
+                    query_texts=[query_text],
+                    n_results=10
+                )
+                end_time = time.time()
+                times.append(end_time - start_time)
+                progress.update(task, advance=1)
+        
+        # Calculate statistics
+        avg_time = sum(times) / len(times)
+        min_time = min(times)
+        max_time = max(times)
+        
+        # Display results in a formatted table
+        console.print("\n[bold green]✓ Benchmark Complete![/bold green]\n")
+        
+        results_table = Table(
+            title="[bold]Performance Results[/bold]",
+            show_header=True,
+            header_style="bold magenta",
+            box=box.DOUBLE,
+            border_style="cyan"
+        )
+        results_table.add_column("Parameter", style="cyan", width=30)
+        results_table.add_column("Value", style="green", justify="right", width=30)
+        
+        results_table.add_row("Distance Function", f"[bold]{distance_choice.upper()}[/bold]")
+        results_table.add_row("Total Records", f"{total_records:,} movies")
+        results_table.add_row("Average Query Time", f"[bold]{avg_time*1000:.2f} ms[/bold]")
+        results_table.add_row("Min Query Time", f"{min_time*1000:.2f} ms")
+        results_table.add_row("Max Query Time", f"{max_time*1000:.2f} ms")
+        results_table.add_row("Total Benchmark Time", f"{sum(times):.2f} s")
+        results_table.add_row("Iterations", f"{iterations}")
+        
+        console.print(results_table)
+        
+        # Display additional insights
+        console.print("\n[bold]Performance Insights:[/bold]")
+        if avg_time < 0.1:
+            console.print("  [green]✓[/green] Excellent performance! Queries are very fast.")
+        elif avg_time < 0.5:
+            console.print("  [yellow]✓[/yellow] Good performance. Acceptable for real-time use.")
+        else:
+            console.print("  [red]⚠[/red] Slower performance. Consider optimizing or reducing dataset size.")
+        
+        console.print(f"\n[dim]Note: First query may be slower due to model loading.[/dim]\n")
+        
+        return new_collection
+        
+    except KeyboardInterrupt:
+        console.print("\n\n[yellow]Operation cancelled by user.[/yellow]")
+        return None
+    except Exception as e:
+        console.print(f"\n[red]Error during interactive benchmark: {e}[/red]")
+        import traceback
+        console.print(f"[dim]{traceback.format_exc()}[/dim]")
+        return None

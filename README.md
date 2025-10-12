@@ -85,6 +85,14 @@ Movie Recommendation System/
    - Quick examples: `QUICK_START.md`
    - Comprehensive guide: `SAMPLE_INPUTS.md`
 
+## 📖 Key Documentation to Read
+
+1. **PROJECT_STATUS.md** - Complete project overview and status
+2. **QUICK_START.md** - Quick reference guide
+3. **SAMPLE_INPUTS.md** - Best inputs to try
+4. **IMPORTANT_NOTES.md** - Understanding recommendation behavior
+5. **INTERACTIVE_INDEXING_GUIDE.md** - Advanced indexing benchmark feature (NEW)
+
 ## 🎮 Usage Guide
 
 ### Main Menu Options
@@ -135,6 +143,12 @@ Movie Recommendation System/
   - Run performance tests
   - View average, min, max query times
   - Learn about HNSW indexing and tuning
+- **🔬 Interactive Indexing Benchmark** (NEW):
+  - Dynamically test different distance functions (cosine, L2, IP)
+  - Recreate collection with new settings
+  - Real-time progress tracking during re-ingestion
+  - Comprehensive performance benchmarking
+  - Compare results across different configurations
 
 ## 🔧 Configuration
 
