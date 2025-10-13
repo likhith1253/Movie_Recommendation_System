@@ -90,10 +90,8 @@ def get_movie_by_id(collection: Collection, movie_id: str) -> Optional[Dict[str,
             ids=[movie_id],
             include=["metadatas", "documents", "embeddings"] # Add "embeddings" here
         )
-
         if not result['ids']:
             return None
-
         return {
             'id': result['ids'][0],
             'metadata': result['metadatas'][0],

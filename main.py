@@ -554,6 +554,8 @@ def main():
         # Connect to database
         with console.status("[bold green]Connecting to database...", spinner="dots"):
             collection = database.connect_to_collection()
+            if collection is None:
+                raise ConnectionError("Failed to connect to ChromaDB collection (received None).")
         
         console.print("[bold green]✓[/bold green] Connected to ChromaDB successfully!\n")
         
@@ -561,6 +563,7 @@ def main():
         count = database.get_collection_count(collection)
         console.print(f"[dim]Database contains {count:,} movies[/dim]")
         
+
         # Start main menu
         main_menu(collection)
         

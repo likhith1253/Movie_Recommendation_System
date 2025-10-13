@@ -72,7 +72,6 @@ def display_movie_embeddings(movie_name: str):
         table.add_column("Value", style="white")
         
         metadata = movie_data['metadata']
-        table.add_row("ID", movie_data['id'])
         table.add_row("Title", metadata.get('title', 'N/A'))
         table.add_row("Genres", metadata.get('genres', 'N/A'))
         table.add_row("Director", metadata.get('director', 'N/A'))
