@@ -1,6 +1,7 @@
 import pandas as pd
 import chromadb
 import ast
+import sys
 from typing import List
 from chromadb.types import Metadata
 
@@ -154,6 +155,10 @@ def main():
     """
     Main function for command-line ingestion.
     """
+    try:  # the check marks below fail on cp1252 Windows consoles
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
     print("Starting data ingestion process...")
     
     def print_progress(current, total, message):

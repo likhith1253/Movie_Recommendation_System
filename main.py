@@ -566,6 +566,7 @@ def main():
 
         # Start main menu
         main_menu(collection)
+
         
     except ConnectionError as e:
         console.print(f"\n[bold red]❌ Database Connection Error:[/bold red]")

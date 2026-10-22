@@ -1,336 +1,68 @@
-# 🎬 Movie Recommendation System
+# Movie Recommendation System
 
-A sophisticated terminal-based movie recommendation system powered by ChromaDB vector database and AI embeddings. Features a modern, interactive CLI with beautiful visualizations and advanced search capabilities.
+[![tests](https://github.com/likhith1253/Movie_Recommendation_System/actions/workflows/ci.yml/badge.svg)](https://github.com/likhith1253/Movie_Recommendation_System/actions/workflows/ci.yml)
 
-## ✨ Features
+A terminal-based, content-based movie recommender. Every movie is turned into a text document (title, overview, genres, top cast, director), embedded, and stored in a ChromaDB vector index; recommendations are the nearest neighbours of a movie or a free-text query, optionally combined with metadata filters. Built as a vector-database course project.
 
-### 🎯 User Features
-- **Smart Recommendations**: Get personalized movie recommendations based on semantic similarity
-- **Advanced Search**: Combine semantic search with metadata filters (year, rating, runtime)
-- **Genre Exploration**: Browse movies by genre with beautiful table displays
-- **Director Discovery**: Find all movies by a director (demonstrates join-like operations)
-- **Rich UI**: Beautiful terminal interface with colors, tables, and progress indicators
+## Problem
 
-### ⚙️ Admin Features
-- **CRUD Operations**: Full Create, Read, Update, Delete functionality for movies
-- **Database Insights**: View statistics and genre distribution with terminal bar charts
-- **Query Benchmarking**: Test and analyze query performance
-- **Indexing Education**: Learn about HNSW vector indexing and tuning parameters
-- **Database Peek**: Quick view of database records
+Collaborative filtering needs user histories that a small project does not have. Content-based search over text embeddings works from the movie metadata alone and can answer queries such as "a thriller about artificial intelligence" that keyword matching cannot.
 
-## 📁 Project Structure
+## What is implemented
 
-```
-Movie Recommendation System/
-├── main.py                 # Entry point with interactive menus
-├── database.py            # ChromaDB interaction layer
-├── operations.py          # User-facing features
-├── admin.py              # Admin panel functions
-├── config.py             # Configuration and constants
-├── ingest_data.py        # Data ingestion script
-├── requirements.txt      # Python dependencies
-├── tmdb_5000_movies.csv  # Movie dataset
-├── tmdb_5000_credits.csv # Credits dataset
-└── movie_db/             # ChromaDB storage (created after ingestion)
+* **Ingestion** (`ingest_data.py`): merges the TMDb 5000 movies and credits CSVs, parses the JSON-style columns, extracts the director from the crew list, builds one document per movie and writes them to a persistent ChromaDB collection (cosine space, batches of 500). 4,803 TMDb rows become 4,800 indexed movies after dropping rows with missing overview, genres, cast or crew.
+* **Embeddings**: ChromaDB's default embedding function (`all-MiniLM-L6-v2`, run through ONNX, 384 dimensions). No model is trained or fine-tuned here.
+* **User features** (`operations.py`, `main.py`): recommendations for a movie title with a similarity score, semantic search with filters on year, rating and runtime, genre browsing, and "more by this director".
+* **Admin panel** (`admin.py`): create/read/update/delete movies, database statistics, query benchmarking and an interactive indexing benchmark (cosine vs L2 vs inner product). The admin password defaults to a demo value; set the `MOVIE_ADMIN_PASSWORD` environment variable to change it.
+* **Interface**: Rich tables and Questionary prompts in the terminal.
+
+## How to run
+
+```bash
+python -m venv .venv
+.venv\Scripts\activate            # source .venv/bin/activate on Linux/macOS
+pip install -r requirements.txt   # chromadb 0.5.0 needs numpy < 2, which is pinned
+python ingest_data.py             # builds ./movie_db (first run downloads the ~80 MB ONNX model; about 7 minutes on a laptop CPU)
+python main.py                    # interactive menu
 ```
 
-## 🚀 Installation
+Tests (no database or model needed): `pip install -r requirements-dev.txt && python -m pytest`.
+Latency benchmark and example queries after ingestion: `python scripts/benchmark_queries.py`.
 
-### Prerequisites
-- Python 3.8 or higher
-- pip package manager
+## Results
 
-### Setup Steps
+There are no relevance labels, so recommendation quality is not scored (no precision, recall or NDCG). What was measured on a Windows laptop CPU, 4,800 movies, top-6 queries, including query embedding time:
 
-1. **Clone or navigate to the project directory**
-   ```bash
-   cd "Movie Recommendation System"
-   ```
+| Measure | Value |
+|---|---|
+| Indexed movies | 4,800 |
+| `movie_db/` size on disk | about 80 MB |
+| Query latency, mean / median / p95 | about 205-226 ms / 232 ms / 259-270 ms (two runs of 100 queries each) |
 
-2. **Create a virtual environment (recommended)**
-   ```bash
-   python -m venv .venv
-   .venv\Scripts\activate  # On Windows
-   # source .venv/bin/activate  # On Linux/Mac
-   ```
+Example results for the free-text query "a thriller about artificial intelligence": A.I. Artificial Intelligence, Ex Machina, I Robot, Species, Listening, Robot & Frank. Full details and caveats are in [docs/evaluation.md](docs/evaluation.md).
 
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
+## Limitations
 
-4. **Ingest the movie data** (first time only)
-   ```bash
-   python ingest_data.py
-   ```
-   This will:
-   - Load movie and credits data from CSV files
-   - Extract director information from crew data
-   - Create rich text documents for embedding
-   - Store everything in ChromaDB
-   - Takes a few minutes depending on your system
+* Recommendations are purely content-based; there is no user personalisation, and no offline evaluation against ground truth.
+* Query time is dominated by embedding the query text on CPU (a couple of hundred milliseconds), not by the vector search.
+* The TMDb 5000 dataset is from 2017 and mostly English-language films; the CSVs are included for convenience and keep their original licence terms (originally distributed via Kaggle).
+* The admin panel is a demo feature protected by a shared password, not real authentication.
 
-   **If you already have a database without director info:**
-   ```bash
-   python fix_director_metadata.py
-   ```
-   This updates existing records with director information.
+## Repository layout
 
-5. **Run the application**
-   ```bash
-   python main.py
-   ```
-
-6. **Try sample inputs** (see `QUICK_START.md` and `SAMPLE_INPUTS.md`)
-   - Quick examples: `QUICK_START.md`
-   - Comprehensive guide: `SAMPLE_INPUTS.md`
-
-## 📖 Key Documentation to Read
-
-1. **PROJECT_STATUS.md** - Complete project overview and status
-2. **QUICK_START.md** - Quick reference guide
-3. **SAMPLE_INPUTS.md** - Best inputs to try
-4. **IMPORTANT_NOTES.md** - Understanding recommendation behavior
-5. **INTERACTIVE_INDEXING_GUIDE.md** - Advanced indexing benchmark feature (NEW)
-
-## 🎮 Usage Guide
-
-### Main Menu Options
-
-1. **🎯 Get Movie Recommendations**
-   - Enter a movie title you like
-   - Specify how many recommendations you want
-   - View similar movies with similarity scores
-
-2. **🔍 Advanced Search**
-   - Enter a semantic search query (e.g., "a thriller about artificial intelligence")
-   - Optionally add filters:
-     - Release year (after/before a specific year)
-     - Minimum rating (0-10)
-     - Maximum runtime (in minutes)
-   - Combines vector search with metadata filtering
-
-3. **🎭 Find Movies by Genre**
-   - Select or type a genre
-   - Browse all movies in that genre
-   - Autocomplete suggestions for common genres
-
-4. **🎬 Explore by Director**
-   - Enter a movie title
-   - System finds the director
-   - Shows all other movies by that director
-   - Demonstrates "join-like" operations in vector DB
-
-5. **📋 List Sample Movies**
-   - View a sample of movies from the database
-   - Specify how many to display
-
-6. **⚙️ Admin Panel**
-   - Password protected (default: `admin123`)
-   - Access advanced database operations
-
-### Admin Panel Options
-
-- **➕ Create Movie**: Add a new movie with all details
-- **📖 Read Movie by ID**: View full details of a specific movie
-- **✏️ Update Movie**: Modify existing movie information
-- **🗑️ Delete Movie**: Remove a movie from the database
-- **👀 Peek at Database**: Quick view of first N records
-- **📊 Database Insights**: 
-  - Total movie count
-  - Top 10 genres with bar chart visualization
-- **⚡ Benchmark Queries**:
-  - Run performance tests
-  - View average, min, max query times
-  - Learn about HNSW indexing and tuning
-- **🔬 Interactive Indexing Benchmark** (NEW):
-  - Dynamically test different distance functions (cosine, L2, IP)
-  - Recreate collection with new settings
-  - Real-time progress tracking during re-ingestion
-  - Comprehensive performance benchmarking
-  - Compare results across different configurations
-
-## 🔧 Configuration
-
-Edit `config.py` to customize:
-
-```python
-# Database settings
-DB_PATH = "movie_db"
-COLLECTION_NAME = "movies"
-
-# Admin password
-ADMIN_PASSWORD = "admin123"  # Change this!
-
-# Search settings
-DEFAULT_RESULTS = 6
-MAX_SEARCH_RESULTS = 50
-
-# Display settings
-TOP_GENRES_COUNT = 10
-BENCHMARK_ITERATIONS = 10
+```
+main.py, operations.py, admin.py   menus and features
+database.py, config.py             ChromaDB access and settings
+ingest_data.py                     CSV -> ChromaDB
+scripts/benchmark_queries.py       latency benchmark
+tests/                             unit tests for the ingestion helpers
+docs/                              architecture, data pipeline, evaluation, setup; docs/guides has the original usage notes
 ```
 
-## 🎨 Technical Highlights
+## Roadmap
 
-### Vector Database Features
+Ideas, not implemented: a FastAPI layer over `operations.py`, hybrid BM25 + vector search for exact titles, and a labelled evaluation set.
 
-1. **Semantic Search**: Uses sentence transformers to create embeddings
-2. **Metadata Filtering**: Combines vector search with structured queries
-3. **HNSW Indexing**: Fast approximate nearest neighbor search
-4. **Batch Processing**: Efficient data ingestion
+## License
 
-### Advanced ChromaDB Operations
-
-- **Complex Filters**: `$and`, `$or`, `$gte`, `$lte` operators
-- **Hybrid Search**: Semantic + metadata filtering in single query
-- **Join Simulation**: Multi-step queries to simulate relational joins
-- **Performance Monitoring**: Built-in benchmarking tools
-
-### UI/UX Features
-
-- **Rich Tables**: Beautiful formatted tables with colors
-- **Interactive Menus**: Questionary-powered selection menus
-- **Progress Indicators**: Visual feedback for long operations
-- **Styled Panels**: Information displayed in bordered panels
-- **Color Coding**: Consistent color scheme throughout
-
-## 📊 Data Schema
-
-Each movie in the database contains:
-
-```python
-{
-    "id": "unique_id",
-    "metadata": {
-        "title": "Movie Title",
-        "overview": "Plot summary",
-        "genres": "Action, Thriller",
-        "release_date": "2024-01-01",
-        "vote_average": 7.5,
-        "runtime": 120,
-        "director": "Director Name"
-    },
-    "document": "Rich text for embedding..."
-}
-```
-
-## 🔍 Example Queries
-
-### Semantic Search
-```
-"a movie about time travel and paradoxes"
-"romantic comedy set in New York"
-"dark psychological thriller"
-```
-
-### Advanced Search with Filters
-```
-Query: "space exploration"
-Filters:
-  - After 2010
-  - Rating > 7.0
-  - Runtime < 150 minutes
-```
-
-### Best Sample Inputs for Testing
-
-**Recommendations:**
-- `Inception` - Mind-bending sci-fi thriller
-- `The Dark Knight` - Superhero/crime film
-- `Pulp Fiction` - Tarantino classic
-- `The Matrix` - Sci-fi action
-
-**Director Exploration:**
-- `Inception` → Christopher Nolan filmography
-- `Pulp Fiction` → Quentin Tarantino films
-- `Avatar` → James Cameron movies
-- `Jurassic Park` → Steven Spielberg films
-
-**See `SAMPLE_INPUTS.md` for comprehensive examples showcasing ChromaDB's full capabilities.**
-
-## 🛠️ Development
-
-### Module Responsibilities
-
-- **`config.py`**: Centralized configuration
-- **`database.py`**: Low-level ChromaDB operations
-- **`operations.py`**: User-facing features with rich UI
-- **`admin.py`**: Admin operations and analytics
-- **`main.py`**: Application flow and menu system
-- **`ingest_data.py`**: Data loading and preprocessing
-
-### Adding New Features
-
-1. Add database functions to `database.py`
-2. Create user-facing wrappers in `operations.py` or `admin.py`
-3. Add menu options in `main.py`
-4. Update configuration in `config.py` if needed
-
-## 📝 Notes
-
-- **First Run**: Must run `ingest_data.py` before using the application
-- **Database Location**: ChromaDB stores data in `./movie_db/` directory
-- **Re-ingestion**: Delete `movie_db/` folder to re-ingest data
-- **Performance**: Query speed depends on dataset size and system resources
-- **Director Data**: Extracted from crew information during ingestion
-
-## 🔐 Security
-
-- Change the default admin password in `config.py`
-- Admin panel is password protected
-- Destructive operations require confirmation
-
-## 🐛 Troubleshooting
-
-**"Collection not found" error**
-- Run `python ingest_data.py` to create the database
-
-**Slow queries**
-- Normal for first query (model loading)
-- Subsequent queries should be faster
-- Check benchmark results in admin panel
-
-**Import errors**
-- Ensure all dependencies are installed: `pip install -r requirements.txt`
-- Activate virtual environment if using one
-
-**CSV file not found**
-- Ensure `tmdb_5000_movies.csv` and `tmdb_5000_credits.csv` are in the project directory
-
-## 📚 Technologies Used
-
-- **ChromaDB**: Vector database for embeddings
-- **Sentence Transformers**: Text embedding models
-- **Rich**: Terminal formatting and tables
-- **Questionary**: Interactive prompts
-- **Pandas**: Data processing
-- **Python 3.8+**: Core language
-
-## 🎓 Learning Resources
-
-The application includes educational content about:
-- Vector database indexing (HNSW algorithm)
-- Semantic search vs keyword search
-- Metadata filtering in vector databases
-- Query performance optimization
-- Embedding-based recommendations
-
-Access this through the **Admin Panel → Benchmark Queries** option.
-
-## 📄 License
-
-This project uses the TMDB 5000 Movie Dataset. Please refer to the dataset's license for usage terms.
-
-## 🤝 Contributing
-
-Feel free to enhance this project by:
-- Adding new search features
-- Improving the UI
-- Optimizing query performance
-- Adding more analytics
-- Expanding the dataset
-
----
-
-**Enjoy exploring movies with AI-powered recommendations! 🎬🍿**
+MIT for the code, see [LICENSE](LICENSE). The TMDb data files keep their own terms.

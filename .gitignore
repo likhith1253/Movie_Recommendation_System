@@ -13,3 +13,8 @@ __pycache__/
 # IDE/Editor specific
 .vscode/
 .idea/
+
+# Generated / local
+movie_list.txt
+tempCodeRunnerFile.py
+.pytest_cache/

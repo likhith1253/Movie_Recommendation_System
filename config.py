@@ -12,7 +12,10 @@ MOVIES_CSV_FILE_PATH = "tmdb_5000_movies.csv"
 CREDITS_CSV_FILE_PATH = "tmdb_5000_credits.csv"
 
 # Admin Configuration
-ADMIN_PASSWORD = "admin123"  # Change this to a secure password
+import os
+
+# Demo default so the admin panel works out of the box; set MOVIE_ADMIN_PASSWORD to override.
+ADMIN_PASSWORD = os.environ.get("MOVIE_ADMIN_PASSWORD", "admin123")
 
 # Application Settings
 BATCH_SIZE = 500  # For data ingestion
